@@ -1,4 +1,7 @@
-# iDropper
+# iDropper Check out the live demo [HERE](https://i-dropper.vercel.app/)
+
+
+
 
 Eyedropper and color picker browser extension with magnified preview.
 
