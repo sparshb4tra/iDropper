@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>iDropper</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 280px;
+      background: #1a1a1a;
+      font: 13px/1.4 Helvetica, Arial, sans-serif;
+      color: #fff;
+    }
+    .app { padding: 12px; }
+    header { display: flex; align-items: center; margin-bottom: 12px; }
+    .logo { font-weight: bold; font-size: 15px; }
+    .pick-btn {
+      width: 100%;
+      padding: 12px;
+      background: #E85D4C;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font: bold 14px Helvetica, Arial, sans-serif;
+      cursor: pointer;
+    }
+    .pick-btn:hover { background: #f06d5c; }
+    
+    .color-block {
+      height: 60px;
+      margin: 12px 0;
+      border-radius: 8px;
+      background: #2d2d2d;
+      border: 1px solid #3a3a3a;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.2s;
+    }
+    .color-block:hover { border-color: #555; }
+    .color-block::after {
+      content: 'Click to expand';
+      position: absolute;
+      bottom: 4px;
+      right: 8px;
+      font-size: 9px;
+      color: rgba(255,255,255,0.4);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .color-block:hover::after { opacity: 1; }
+    .color-block.has-color::after { content: 'Click to edit'; }
+    
+    /* Expanded Panel */
+    .expanded {
+      display: none;
+      background: #242424;
+      border-radius: 8px;
+      border: 1px solid #3a3a3a;
+      margin: 12px 0;
+      overflow: hidden;
+    }
+    .expanded.show { display: block; }
+    
+    .expanded-preview {
+      height: 120px;
+      position: relative;
+      background-image: 
+        linear-gradient(45deg, #333 25%, transparent 25%),
+        linear-gradient(-45deg, #333 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #333 75%),
+        linear-gradient(-45deg, transparent 75%, #333 75%);
+      background-size: 12px 12px;
+      background-position: 0 0, 0 6px, 6px -6px, -6px 0px;
+    }
+    .expanded-color {
+      position: absolute;
+      inset: 0;
+    }
+    .expanded-close {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 24px;
+      height: 24px;
+      background: rgba(0,0,0,0.5);
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 24px;
+    }
+    .expanded-close:hover { background: rgba(0,0,0,0.7); }
+    
+    .expanded-controls { padding: 12px; }
+    
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .slider-label {
+      width: 14px;
+      font-size: 10px;
+      font-weight: bold;
+      color: #888;
+    }
+    .slider-input {
+      flex: 1;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 8px;
+      border-radius: 4px;
+      background: #3a3a3a;
+      outline: none;
+    }
+    .slider-input::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    }
+    .slider-val {
+      width: 36px;
+      text-align: right;
+      font-family: Menlo, Monaco, monospace;
+      font-size: 11px;
+      color: #aaa;
+    }
+    
+    #sliderR { background: linear-gradient(to right, #000, #f00); }
+    #sliderG { background: linear-gradient(to right, #000, #0f0); }
+    #sliderB { background: linear-gradient(to right, #000, #00f); }
+    #sliderA { 
+      background-image: 
+        linear-gradient(to right, transparent, var(--current-color, #fff)),
+        linear-gradient(45deg, #666 25%, transparent 25%),
+        linear-gradient(-45deg, #666 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #666 75%),
+        linear-gradient(-45deg, transparent 75%, #666 75%);
+      background-size: 100% 100%, 8px 8px, 8px 8px, 8px 8px, 8px 8px;
+      background-position: 0 0, 0 0, 0 4px, 4px -4px, -4px 0px;
+    }
+    
+    .rgba-output {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: #1a1a1a;
+      border-radius: 4px;
+      margin-top: 8px;
+      cursor: pointer;
+    }
+    .rgba-output:hover { background: #222; }
+    .rgba-label {
+      font-size: 10px;
+      font-weight: bold;
+      color: #888;
+      text-transform: uppercase;
+    }
+    .rgba-val {
+      flex: 1;
+      font-family: Menlo, Monaco, monospace;
+      font-size: 11px;
+    }
+    
+    .values {
+      background: #242424;
+      border-radius: 6px;
+      border: 1px solid #3a3a3a;
+      margin-bottom: 12px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      padding: 8px 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #2d2d2d;
+    }
+    .row:last-child { border: none; }
+    .row:hover { background: #2d2d2d; }
+    .label {
+      width: 45px;
+      font-size: 10px;
+      font-weight: bold;
+      color: #888;
+      text-transform: uppercase;
+    }
+    .val {
+      flex: 1;
+      font-family: Menlo, Monaco, monospace;
+      font-size: 11px;
+    }
+    .section { margin-top: 8px; }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 10px;
+      font-weight: bold;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 8px;
+    }
+    .section-head button {
+      background: none;
+      border: none;
+      color: #E85D4C;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .history {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 6px;
+    }
+    .history-item {
+      aspect-ratio: 1;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 2px solid transparent;
+    }
+    .history-item:hover { border-color: #fff; transform: scale(1.1); }
+    .empty { grid-column: 1/-1; text-align: center; color: #555; font-size: 11px; padding: 12px; }
+    .toast {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%) translateY(40px);
+      background: #4CAF50;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: bold;
+      opacity: 0;
+      transition: all 0.2s;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header><span class="logo">iDropper</span></header>
+    <button class="pick-btn" id="pick">Pick Color</button>
+    
+    <div class="color-block" id="block"></div>
+    
+    <div class="expanded" id="expanded">
+      <div class="expanded-preview">
+        <div class="expanded-color" id="expandedColor"></div>
+        <button class="expanded-close" id="closeExpanded">×</button>
+      </div>
+      <div class="expanded-controls">
+        <div class="slider-row">
+          <span class="slider-label">R</span>
+          <input type="range" class="slider-input" id="sliderR" min="0" max="255" value="255">
+          <span class="slider-val" id="valR">255</span>
+        </div>
+        <div class="slider-row">
+          <span class="slider-label">G</span>
+          <input type="range" class="slider-input" id="sliderG" min="0" max="255" value="255">
+          <span class="slider-val" id="valG">255</span>
+        </div>
+        <div class="slider-row">
+          <span class="slider-label">B</span>
+          <input type="range" class="slider-input" id="sliderB" min="0" max="255" value="255">
+          <span class="slider-val" id="valB">255</span>
+        </div>
+        <div class="slider-row">
+          <span class="slider-label">A</span>
+          <input type="range" class="slider-input" id="sliderA" min="0" max="100" value="100">
+          <span class="slider-val" id="valA">100%</span>
+        </div>
+        <div class="rgba-output" id="rgbaOutput">
+          <span class="rgba-label">RGBA</span>
+          <span class="rgba-val" id="rgbaVal">rgba(255, 255, 255, 1)</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="values" id="values">
+      <div class="row" data-key="hex"><span class="label">HEX</span><span class="val">-</span></div>
+      <div class="row" data-key="rgb"><span class="label">RGB</span><span class="val">-</span></div>
+      <div class="row" data-key="hsl"><span class="label">HSL</span><span class="val">-</span></div>
+      <div class="row" data-key="hsb"><span class="label">HSB</span><span class="val">-</span></div>
+      <div class="row" data-key="cmyk"><span class="label">CMYK</span><span class="val">-</span></div>
+    </div>
+    <div class="section">
+      <div class="section-head"><span>History</span><button id="clear">Clear</button></div>
+      <div class="history" id="history"></div>
+    </div>
+    <div class="toast" id="toast">Copied</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
