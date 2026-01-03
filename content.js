@@ -2,90 +2,114 @@
   if (window._iDropper) return;
   window._iDropper = true;
 
-  // ===== CONSTANTS =====
-  const MAG_SIZE = 143;      // Magnifier diameter
-  const GRID = 11;           // 11x11 cells
-  const CELL = 13;           // Each cell is 13px
-  const CENTER = 5;          // Center cell index
-
   // ===== STATE =====
   let active = false;
-  let pixels = null;         // ImageData pixels array
-  let imgW = 0, imgH = 0;    // Screenshot dimensions
+  let pixels = null;
+  let imgW = 0, imgH = 0;
   let scaleX = 1, scaleY = 1;
 
   // ===== DOM =====
-  let overlay, mag, tip, cvs, ctx, cross, style;
+  let ui, overlay, hud, swatch, hexText, style;
+  let mag, magCanvas, magCtx, magCross, tinyCanvas, tinyCtx, tinyData;
+  let rafPending = false, lastX = 0, lastY = 0;
 
-  // ===== STYLES =====
   const CSS = `
-    .idrop-overlay {
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      right: 0 !important;
-      bottom: 0 !important;
-      z-index: 2147483646 !important;
-      cursor: none !important;
+    #idrop-ui { position: fixed; inset: 0; z-index: 2147483647; cursor: crosshair !important; pointer-events: none; }
+    .idrop-overlay { position: fixed; inset: 0; pointer-events: all; background: transparent; cursor: crosshair !important; }
+    
+    .idrop-hud {
+      position: fixed;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+      pointer-events: none;
+      transform: translate(20px, 20px);
     }
+
+    .idrop-swatch {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .idrop-hex {
+      font: bold 14px 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      color: #fff;
+      letter-spacing: 0.5px;
+    }
+
+    /* Magnifier */
     .idrop-mag {
-      position: fixed !important;
-      width: 143px !important;
-      height: 143px !important;
-      border-radius: 50% !important;
-      border: 3px solid #fff !important;
-      box-shadow: 0 0 0 1px rgba(0,0,0,0.25), 0 8px 24px rgba(0,0,0,0.35) !important;
-      pointer-events: none !important;
-      z-index: 2147483647 !important;
-      overflow: hidden !important;
-      background: #111 !important;
+      position: fixed;
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.9);
+      background: #111;
+      overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.25), 0 10px 26px rgba(0,0,0,0.35);
+      pointer-events: none;
     }
     .idrop-mag canvas {
-      display: block !important;
-      border-radius: 50% !important;
+      width: 100%;
+      height: 100%;
+      image-rendering: pixelated;
+      display: block;
     }
-    .idrop-cross {
-      position: absolute !important;
-      top: 50% !important;
-      left: 50% !important;
-      width: 13px !important;
-      height: 13px !important;
-      margin: -6.5px 0 0 -6.5px !important;
-      border: 2px solid #fff !important;
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,0,0,0.4) !important;
-      box-sizing: border-box !important;
-      pointer-events: none !important;
+    .idrop-mag-cross {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 13px;
+      height: 13px;
+      transform: translate(-50%, -50%);
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.55);
+      box-sizing: border-box;
+      border-radius: 1px;
+      pointer-events: none;
     }
-    .idrop-tip {
-      position: fixed !important;
-      padding: 5px 10px !important;
-      background: rgba(20,20,20,0.9) !important;
-      color: #fff !important;
-      font: bold 11px Helvetica, Arial, sans-serif !important;
-      border-radius: 4px !important;
-      pointer-events: none !important;
-      z-index: 2147483647 !important;
-      display: flex !important;
-      align-items: center !important;
-      gap: 6px !important;
+
+    /* Precision Crosshair */
+    .idrop-cursor-v, .idrop-cursor-h {
+      position: fixed;
+      background: #fff;
+      pointer-events: none;
+      mix-blend-mode: difference;
+      box-shadow: 0 0 1px rgba(0,0,0,0.5);
     }
-    .idrop-tip-swatch {
-      width: 12px !important;
-      height: 12px !important;
-      border-radius: 2px !important;
-      border: 1px solid rgba(255,255,255,0.3) !important;
+    .idrop-cursor-v { width: 1px; height: 30px; transform: translate(-0.5px, -15px); }
+    .idrop-cursor-h { width: 30px; height: 1px; transform: translate(-15px, -0.5px); }
+
+    /* Click Ping Animation */
+    @keyframes idrop-ping {
+      0% { transform: scale(0.5); opacity: 1; }
+      100% { transform: scale(2.5); opacity: 0; }
     }
-    .idrop-hide-cursor, .idrop-hide-cursor * {
-      cursor: none !important;
+    .idrop-ping {
+      position: fixed;
+      width: 40px;
+      height: 40px;
+      border: 2px solid #E85D4C;
+      border-radius: 50%;
+      pointer-events: none;
+      animation: idrop-ping 0.4s ease-out forwards;
+      z-index: 2147483647;
     }
   `;
 
-  // ===== COLOR UTILS =====
-  function hex(r, g, b) {
+  // ===== UTILS =====
+  function getHex(r, g, b) {
     return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
   }
 
-  function hsl(r, g, b) {
+  function rgbToHsl(r, g, b) {
     r /= 255; g /= 255; b /= 255;
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
     let h = 0, s = 0, l = (max + min) / 2;
@@ -99,261 +123,251 @@
     return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
   }
 
-  function hsb(r, g, b) {
+  function rgbToHsb(r, g, b) {
     r /= 255; g /= 255; b /= 255;
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
-    let h = 0, s = max === 0 ? 0 : (max - min) / max;
-    if (max !== min) {
-      const d = max - min;
+    const v = max;
+    const d = max - min;
+    const s = max === 0 ? 0 : d / max;
+    let h = 0;
+    if (d !== 0) {
       if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
       else if (max === g) h = ((b - r) / d + 2) / 6;
       else h = ((r - g) / d + 4) / 6;
     }
-    return { h: Math.round(h * 360), s: Math.round(s * 100), b: Math.round(max * 100) };
+    return { h: Math.round(h * 360), s: Math.round(s * 100), b: Math.round(v * 100) };
   }
 
-  function cmyk(r, g, b) {
+  function rgbToCmyk(r, g, b) {
     if (r === 0 && g === 0 && b === 0) return { c: 0, m: 0, y: 0, k: 100 };
     const c = 1 - r / 255, m = 1 - g / 255, y = 1 - b / 255;
     const k = Math.min(c, m, y);
     return {
-      c: Math.round((c - k) / (1 - k) * 100),
-      m: Math.round((m - k) / (1 - k) * 100),
-      y: Math.round((y - k) / (1 - k) * 100),
+      c: Math.round(((c - k) / (1 - k)) * 100),
+      m: Math.round(((m - k) / (1 - k)) * 100),
+      y: Math.round(((y - k) / (1 - k)) * 100),
       k: Math.round(k * 100)
     };
   }
 
-  // ===== PIXEL SAMPLING =====
-  function sample(screenX, screenY) {
-    // Map screen coords to image coords
-    const ix = Math.round(screenX * scaleX);
-    const iy = Math.round(screenY * scaleY);
-    
-    // Bounds check
-    if (ix < 0 || iy < 0 || ix >= imgW || iy >= imgH) {
-      return { r: 0, g: 0, b: 0 };
-    }
-    
-    // Read from pixel array (RGBA format, 4 bytes per pixel)
-    const i = (iy * imgW + ix) * 4;
-    return { r: pixels[i], g: pixels[i + 1], b: pixels[i + 2] };
-  }
+  function pickBestViewportBase(imageW, imageH) {
+    const innerW = window.innerWidth;
+    const innerH = window.innerHeight;
+    const clientW = document.documentElement.clientWidth;
+    const clientH = document.documentElement.clientHeight;
 
-  // ===== RENDERING =====
-  function render(mx, my) {
-    // Clear
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, MAG_SIZE, MAG_SIZE);
+    const options = [
+      { w: innerW, h: innerH },
+      { w: clientW, h: clientH },
+      { w: innerW, h: clientH },
+      { w: clientW, h: innerH }
+    ].filter(o => o.w > 0 && o.h > 0);
 
-    // Circular clip
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(MAG_SIZE / 2, MAG_SIZE / 2, MAG_SIZE / 2, 0, Math.PI * 2);
-    ctx.clip();
-
-    // Draw pixel grid
-    let centerColor = { r: 0, g: 0, b: 0 };
-    
-    for (let row = 0; row < GRID; row++) {
-      for (let col = 0; col < GRID; col++) {
-        // Calculate screen position for this cell
-        // Center cell (5,5) = cursor position
-        // Cell (0,0) = cursor position - 5 pixels
-        const sx = mx + (col - CENTER);
-        const sy = my + (row - CENTER);
-        
-        const c = sample(sx, sy);
-        
-        // Draw cell
-        ctx.fillStyle = `rgb(${c.r},${c.g},${c.b})`;
-        ctx.fillRect(col * CELL, row * CELL, CELL, CELL);
-        
-        // Save center color
-        if (col === CENTER && row === CENTER) {
-          centerColor = c;
-        }
+    let best = options[0];
+    let bestErr = Infinity;
+    for (const o of options) {
+      const sx = imageW / o.w;
+      const sy = imageH / o.h;
+      const err = Math.abs(sx - sy);
+      if (err < bestErr) {
+        bestErr = err;
+        best = o;
       }
     }
+    return best;
+  }
 
-    // Draw grid lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= GRID; i++) {
-      const p = i * CELL + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(p, 0);
-      ctx.lineTo(p, MAG_SIZE);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, p);
-      ctx.lineTo(MAG_SIZE, p);
-      ctx.stroke();
+  function clamp(n, lo, hi) {
+    return n < lo ? lo : (n > hi ? hi : n);
+  }
+
+  function sample(x, y) {
+    // Nearest-pixel mapping (avoids half-pixel drift)
+    const ix = clamp(Math.floor(x * scaleX + 0.5), 0, imgW - 1);
+    const iy = clamp(Math.floor(y * scaleY + 0.5), 0, imgH - 1);
+    const i = (iy * imgW + ix) * 4;
+    return [pixels[i], pixels[i + 1], pixels[i + 2]];
+  }
+
+  // ===== CORE =====
+  function drawFrame(mx, my) {
+    const [r, g, b] = sample(mx, my);
+    const hex = getHex(r, g, b);
+
+    // Update HUD
+    hud.style.left = mx + 'px';
+    hud.style.top = my + 'px';
+    swatch.style.background = hex;
+    hexText.textContent = hex;
+
+    // Update Crosshair
+    const v = ui.querySelector('.idrop-cursor-v');
+    const h = ui.querySelector('.idrop-cursor-h');
+    v.style.left = h.style.left = mx + 'px';
+    v.style.top = h.style.top = my + 'px';
+
+    // Update magnifier position (avoid covering cursor)
+    const gap = 18;
+    const radius = 70;
+    let magX = mx + gap + radius;
+    let magY = my + gap + radius;
+    if (magX + radius > window.innerWidth - 6) magX = mx - gap - radius;
+    if (magY + radius > window.innerHeight - 6) magY = my - gap - radius;
+    if (magX - radius < 6) magX = radius + 6;
+    if (magY - radius < 6) magY = radius + 6;
+    mag.style.left = (magX - radius) + 'px';
+    mag.style.top = (magY - radius) + 'px';
+
+    // Render magnifier pixels (11x11 around cursor)
+    // Fill tinyData as raw 11x11 RGB pixels and upscale to 140x140
+    let p = 0;
+    for (let yy = -5; yy <= 5; yy++) {
+      for (let xx = -5; xx <= 5; xx++) {
+        const c = sample(mx + xx, my + yy);
+        tinyData[p++] = c[0];
+        tinyData[p++] = c[1];
+        tinyData[p++] = c[2];
+        tinyData[p++] = 255;
+      }
     }
+    tinyCtx.putImageData(tinyCtx.__imgData, 0, 0);
+    magCtx.imageSmoothingEnabled = false;
+    magCtx.clearRect(0, 0, 140, 140);
+    magCtx.drawImage(tinyCanvas, 0, 0, 11, 11, 0, 0, 140, 140);
 
-    ctx.restore();
-    return centerColor;
+    // Contrast for center box
+    const bright = (r * 299 + g * 587 + b * 114) / 1000;
+    magCross.style.borderColor = bright > 128 ? '#000' : '#fff';
   }
 
-  // ===== POSITIONING =====
-  function position(e) {
-    const mx = e.clientX;
-    const my = e.clientY;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const r = MAG_SIZE / 2;
-    const gap = 25;
-
-    // Default: bottom-right of cursor
-    let x = mx + gap + r;
-    let y = my + gap + r;
-
-    // Flip if near edges
-    if (x + r > vw - 5) x = mx - gap - r;
-    if (y + r > vh - 5) y = my - gap - r;
-    if (x - r < 5) x = r + 5;
-    if (y - r < 5) y = r + 5;
-
-    mag.style.left = (x - r) + 'px';
-    mag.style.top = (y - r) + 'px';
-
-    // Render magnifier and get center color
-    const c = render(mx, my);
-    const h = hex(c.r, c.g, c.b);
-
-    // Update crosshair contrast
-    const brightness = (c.r * 299 + c.g * 587 + c.b * 114) / 1000;
-    cross.style.borderColor = brightness > 128 ? '#000' : '#fff';
-
-    // Position tooltip below magnifier
-    tip.innerHTML = `<span class="idrop-tip-swatch" style="background:${h}"></span>${h}`;
-    tip.style.left = mx + 'px';
-    tip.style.top = (y + r + 8) + 'px';
-    tip.style.transform = 'translateX(-50%)';
+  function schedule(mx, my) {
+    lastX = mx; lastY = my;
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      if (!active) return;
+      drawFrame(lastX, lastY);
+    });
   }
 
-  // ===== EVENT HANDLERS =====
-  function onMove(e) {
-    position(e);
+  function update(e) {
+    schedule(e.clientX, e.clientY);
   }
 
   function onClick(e) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
+    const mx = e.clientX, my = e.clientY;
+    const [r, g, b] = sample(mx, my);
+    const hex = getHex(r, g, b);
+    const hsl = rgbToHsl(r, g, b);
+    const hsb = rgbToHsb(r, g, b);
+    const cmyk = rgbToCmyk(r, g, b);
 
-    const c = sample(e.clientX, e.clientY);
-    const h = hex(c.r, c.g, c.b);
-    const hs = hsl(c.r, c.g, c.b);
-    const hb = hsb(c.r, c.g, c.b);
-    const cm = cmyk(c.r, c.g, c.b);
+    // Visual confirmation
+    const ping = document.createElement('div');
+    ping.className = 'idrop-ping';
+    ping.style.left = (mx - 20) + 'px';
+    ping.style.top = (my - 20) + 'px';
+    document.body.appendChild(ping);
 
     chrome.runtime.sendMessage({
       action: 'saveColor',
       color: {
-        hex: h,
-        rgb: `rgb(${c.r}, ${c.g}, ${c.b})`,
-        hsl: `hsl(${hs.h}, ${hs.s}%, ${hs.l}%)`,
-        hsb: `hsb(${hb.h}, ${hb.s}%, ${hb.b}%)`,
-        cmyk: `cmyk(${cm.c}%, ${cm.m}%, ${cm.y}%, ${cm.k}%)`
+        hex: hex,
+        rgb: `rgb(${r}, ${g}, ${b})`,
+        hsl: `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`,
+        hsb: `hsb(${hsb.h}, ${hsb.s}%, ${hsb.b}%)`,
+        cmyk: `cmyk(${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)`
       }
     });
 
-    destroy();
+    setTimeout(stop, 150);
   }
 
-  function onKey(e) {
-    if (e.key === 'Escape') destroy();
-  }
-
-  // ===== LIFECYCLE =====
-  function createUI() {
-    style = document.createElement('style');
-    style.textContent = CSS;
-    document.head.appendChild(style);
-
-    overlay = document.createElement('div');
-    overlay.className = 'idrop-overlay';
-
-    mag = document.createElement('div');
-    mag.className = 'idrop-mag';
-
-    cvs = document.createElement('canvas');
-    cvs.width = MAG_SIZE;
-    cvs.height = MAG_SIZE;
-    ctx = cvs.getContext('2d');
-
-    cross = document.createElement('div');
-    cross.className = 'idrop-cross';
-
-    tip = document.createElement('div');
-    tip.className = 'idrop-tip';
-
-    mag.appendChild(cvs);
-    mag.appendChild(cross);
-    document.body.appendChild(overlay);
-    document.body.appendChild(mag);
-    document.body.appendChild(tip);
-    document.body.classList.add('idrop-hide-cursor');
-
-    overlay.addEventListener('mousemove', onMove);
-    overlay.addEventListener('click', onClick);
-    document.addEventListener('keydown', onKey);
-  }
-
-  function destroy() {
-    if (!active) return;
+  function stop() {
     active = false;
-
-    overlay?.removeEventListener('mousemove', onMove);
-    overlay?.removeEventListener('click', onClick);
-    document.removeEventListener('keydown', onKey);
-
-    overlay?.remove();
-    mag?.remove();
-    tip?.remove();
+    ui?.remove();
     style?.remove();
-    document.body.classList.remove('idrop-hide-cursor');
-
     pixels = null;
-    overlay = mag = tip = cvs = ctx = cross = style = null;
+    rafPending = false;
+    document.removeEventListener('keydown', onKey);
   }
+
+  function onKey(e) { if (e.key === 'Escape') stop(); }
 
   async function start() {
     if (active) return;
     active = true;
 
-    // Capture visible tab
-    const dataUrl = await new Promise(r => 
-      chrome.runtime.sendMessage({ action: 'captureTab' }, r)
-    );
-
-    // Load image
+    const dataUrl = await new Promise(r => chrome.runtime.sendMessage({ action: 'captureTab' }, r));
     const img = new Image();
     await new Promise(r => { img.onload = r; img.src = dataUrl; });
 
-    // Store dimensions
-    imgW = img.width;
-    imgH = img.height;
+    imgW = img.width; imgH = img.height;
 
-    // Calculate scale: image pixels per screen pixel
-    scaleX = imgW / window.innerWidth;
-    scaleY = imgH / window.innerHeight;
+    // Auto-calibrate mapping (scrollbars/zoom can make inner vs client differ)
+    const base = pickBestViewportBase(imgW, imgH);
+    scaleX = imgW / base.w;
+    scaleY = imgH / base.h;
 
-    // Extract raw pixel data for fast access
-    const tmp = document.createElement('canvas');
-    tmp.width = imgW;
-    tmp.height = imgH;
-    const tctx = tmp.getContext('2d', { willReadFrequently: true });
-    tctx.drawImage(img, 0, 0);
-    pixels = tctx.getImageData(0, 0, imgW, imgH).data;
+    const c = document.createElement('canvas');
+    c.width = imgW; c.height = imgH;
+    const t = c.getContext('2d', { willReadFrequently: true });
+    t.drawImage(img, 0, 0);
+    pixels = t.getImageData(0, 0, imgW, imgH).data;
 
-    // Create UI
-    createUI();
+    // UI Construction
+    ui = document.createElement('div');
+    ui.id = 'idrop-ui';
+    
+    style = document.createElement('style');
+    style.textContent = CSS;
+    
+    overlay = document.createElement('div');
+    overlay.className = 'idrop-overlay';
+    
+    // Magnifier
+    mag = document.createElement('div');
+    mag.className = 'idrop-mag';
+    magCanvas = document.createElement('canvas');
+    magCanvas.width = 140;
+    magCanvas.height = 140;
+    magCtx = magCanvas.getContext('2d');
+    magCross = document.createElement('div');
+    magCross.className = 'idrop-mag-cross';
+    mag.append(magCanvas, magCross);
+
+    // Tiny 11x11 offscreen buffer (reused every frame)
+    tinyCanvas = document.createElement('canvas');
+    tinyCanvas.width = 11;
+    tinyCanvas.height = 11;
+    tinyCtx = tinyCanvas.getContext('2d', { willReadFrequently: true });
+    tinyCtx.__imgData = tinyCtx.createImageData(11, 11);
+    tinyData = tinyCtx.__imgData.data;
+
+    hud = document.createElement('div');
+    hud.className = 'idrop-hud';
+    swatch = document.createElement('div');
+    swatch.className = 'idrop-swatch';
+    hexText = document.createElement('div');
+    hexText.className = 'idrop-hex';
+    
+    const cursorV = document.createElement('div');
+    cursorV.className = 'idrop-cursor-v';
+    const cursorH = document.createElement('div');
+    cursorH.className = 'idrop-cursor-h';
+
+    hud.append(swatch, hexText);
+    ui.append(style, overlay, mag, hud, cursorV, cursorH);
+    document.body.appendChild(ui);
+
+    overlay.onmousemove = update;
+    overlay.onclick = onClick;
+    document.addEventListener('keydown', onKey);
+
+    // Paint initial frame at center
+    schedule(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2));
   }
 
-  // ===== MESSAGE LISTENER =====
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.action === 'pick') start();
-  });
+  chrome.runtime.onMessage.addListener((msg) => { if (msg.action === 'pick') start(); });
 })();
